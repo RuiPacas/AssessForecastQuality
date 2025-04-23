@@ -1,39 +1,64 @@
 import pandas as pd
 import numpy as np
-import sys
-import argparse
 import os
 
-parser = argparse.ArgumentParser()
-parser.add_argument('--actualQuantity', '-a', help="Actual Quantity, default = 700", type= int, default=700, required= False)
-parser.add_argument('--numberOfWeeks', '-w', help="Number of Weeks, default = 40", type= int, default=40, required= False)
-parser.add_argument('--numberOfModels', '-nm', help="Number of Models, default = 5", type= int, default=5, required= False)
-parser.add_argument('--numberOfParts', '-p', help="Number of parts per model, default = 750", type= int, default=750, required= False)
-parser.add_argument('--numberOfSubparts', '-sp', help="Max number of subparts per part (different colors, index, ics), default = 5", type= int, default=5, required= False)
-parser.add_argument('--icsPenalty', '-ics', help="Installation Conditions penalty, default = 1", type= int, default=1, required= False)
-parser.add_argument('--colorPenalty', '-c', help="Color Penalty, default = 1", type= int, default=1, required= False)
-parser.add_argument('--indexPenalty', '-idx', help="Index penalty, default = 1", type= int, default=1, required= False)
+actual_quantity = 100
+number_of_weeks = 40
+number_of_models = 5
+number_of_parts = 1000
+number_of_subparts = 5
 
-args = parser.parse_args()
-actual_quantity = args.actualQuantity
-number_of_weeks = args.numberOfWeeks
-number_of_models = args.numberOfModels
-number_of_parts = args.numberOfParts
-number_of_subparts = args.numberOfSubparts
+distance_penalty = 0.5
 
-ics_penalty = args.icsPenalty
+ics_penalty = 0.1
 penalty_per_ic = {
-    "0": 1 * ics_penalty,
-    "1": 2 * ics_penalty,
-    "2": 3 * ics_penalty,
-    "3": 4 * ics_penalty,
-    "5": 5 * ics_penalty,
-    "8": 6 * ics_penalty,
-    "13": 7 * ics_penalty,
+    "0": 0,
+    "1": 0.1 * ics_penalty,
+    "2": 0.2 * ics_penalty,
+    "3": 0.3 * ics_penalty,
+    "5": 0.5 * ics_penalty,
+    "8": 0.8 * ics_penalty,
+    "13": 1.2 * ics_penalty,
 }
+ics_probability = {
+    "0": 0.30,
+    "1": 0.20,
+    "2": 0.15,
+    "3": 0.15,
+    "5": 0.1,
+    "8": 0.05,
+    "13": 0.05,
+}
+ics = []
+for key in ics_probability.keys(): 
+    for i in range(int(ics_probability[key] * 100)):
+        ics.append(key)
 
-color_penalty = args.colorPenalty
-index_penalty = args.indexPenalty
+color_penalty = 1.5
+colors_probability = {
+    "": 0.60,
+    "RED": 0.10,
+    "GREEN": 0.10,
+    "BLUE": 0.10,
+    "GRAY": 0.10,
+}
+colors = []
+for key in colors_probability.keys():
+    for i in range(int(colors_probability[key] * 100)):
+        colors.append(key)
+
+index_penalty = 0.1
+index_probability = {
+    "0": 0.25,
+    "1": 0.25,
+    "2": 0.25,
+    "3": 0.25,
+}
+indexes = []
+for key in index_probability.keys():
+    for i in range(int(index_probability[key] * 100)):
+        indexes.append(key)
+
 
 models = []
 model_forecasts = {}
@@ -45,94 +70,60 @@ for i in range(number_of_models):
             model_forecasts[model_id] = {}
             break
 
-# for each week, create forecast for each model
-for i in range(number_of_models):
-    model_forecasts[models[i]][1] = [] 
-    for j in range(1, number_of_weeks + 1):
-        n_week_model_forecast = np.random.normal(actual_quantity, 200, number_of_models)
-        model_forecasts[models[i]][1].append({ "partCodeId": "part" + models[i], "vehicleModelId": models[i], "numberOfInstallationConditions": None, "year": 2025, "week": j, "dfQuantity": n_week_model_forecast[0], "actualQuantity": actual_quantity, "forecastWeek": 1, "forecastDistance": j - 1 })
+used_part_ids = {}
+def generate_part_and_subparts(model_id):
+    part_id = ''.join(np.random.choice(list('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890'), 10))
+    while True:
+        part_id = ''.join(np.random.choice(list('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890'), 10))
+        if(part_id not in used_part_ids[model_id]):
+            used_part_ids[model_id].append(part_id)
+            break
 
-for forecast_week in range(2, number_of_weeks + 1):
-    for i in range(number_of_models):
-        model_forecasts[models[i]][forecast_week] = []
-        for previous_part_df in model_forecasts[models[i]][forecast_week-1]:
-            if(previous_part_df["week"] < forecast_week):
-                continue
-            n_week_model_forecast = np.random.normal(previous_part_df["actualQuantity"], 5 * (previous_part_df["week"] - forecast_week + 1), 1)
-            model_forecasts[models[i]][forecast_week].append({ "partCodeId": previous_part_df["partCodeId"], "vehicleModelId": models[i], "numberOfInstallationConditions": None, "year": previous_part_df["year"], "week": previous_part_df["week"], "dfQuantity": n_week_model_forecast[0], "actualQuantity": previous_part_df["actualQuantity"], "forecastWeek": forecast_week, "forecastDistance": previous_part_df["week"] - forecast_week })
-
+    subparts = []
+    for _ in range(number_of_subparts):
+        while True:
+            [color] = np.random.choice(colors, 1)
+            [index] = np.random.choice(indexes, 1)
+            [ic] = np.random.choice(ics, 1)
+            subpart = {"color": color, "index": index, "ics": ic}
+            if subpart not in subparts:
+                subparts.append(subpart)
+                break
+    return part_id, subparts
 
 # generate number_of_parts parts per model
 parts_per_model = {}
+
 for model in models:
     parts_per_model[model] = []
+    used_part_ids[model] = []
     for i in range(number_of_parts):
-        part_id = ''.join(np.random.choice(list('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890'), 10))
-        while part_id in parts_per_model[model]: 
-            part_id = ''.join(np.random.choice(list('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890'), 10))
-        for j in range(number_of_subparts):
-            while True:
-                can_add = True
-                [color] = np.random.choice(['', '', '', 'RED', 'GREEN', 'BLUE', 'GRAY'], 1)
-                [index] = np.random.choice([' ', ' ', ' ', '1', '2', '3'], 1)
-                [ics] = np.random.choice(['0', '1', '2', '3', '5', '8', '13'], 1)
-                for part in parts_per_model[model]:
-                    if part["partCodeId"][:10] == part_id and part["partCodeId"][10:11] == index and part["partCodeId"][11:] == color and part["numberOfInstallationConditions"] == ics:
-                        can_add = False
-                    else:
-                        can_add = True
-                if can_add:
-                    parts_per_model[model].append({ "partCodeId": f"{part_id}{index}{color}", "vehicleModelId": model, "year": 2025, "week": 1, "actualQuantity": actual_quantity / len(ics), "dfQuantity": None,  "numberOfInstallationConditions": ics })
-                    break
-
-# Create first forecast 
-all_parts_with_forecast = {1: []}
-for model in models:
-    for model_forecast in model_forecasts[model][1]:
-        week = model_forecast["week"]
-        actual_quantity_per_subpart = model_forecast["actualQuantity"] / number_of_subparts
-        part_factor_per_subpart = model_forecast["dfQuantity"] / number_of_subparts
-
-        for part in parts_per_model[model]:
-            color_factor = np.random.normal(part_factor_per_subpart, color_penalty if len(part["partCodeId"]) > 11 else 3  , 1)
-            index_factor = np.random.normal(part_factor_per_subpart, index_penalty if part["partCodeId"][10] in ['1','2','3'] else 3, 1)
-            ic_factor = np.random.normal(part_factor_per_subpart, penalty_per_ic[str(part["numberOfInstallationConditions"])], 1)
-            all_factors = (color_factor + index_factor + ic_factor) / 3
-            part = { "partCodeId": part["partCodeId"], "vehicleModelId": part["vehicleModelId"], "year": 2025, "week": week, "actualQuantity": actual_quantity_per_subpart, "dfQuantity": all_factors[0],  "numberOfInstallationConditions": part["numberOfInstallationConditions"], "forecastWeek": 1, "forecastDistance": week - 1}
-            all_parts_with_forecast[1].append(part)
-
-# create subsequent forecasts for the rest of the weeks, taking the previous into consideration
-for forecast_week in range(2, number_of_weeks + 1):
-    all_parts_with_forecast[forecast_week] = []
-    for part in all_parts_with_forecast[forecast_week - 1]:
-        if(part["week"] < forecast_week):
-            continue
-        for model_forecast in model_forecasts[part["vehicleModelId"]][forecast_week]:
-            if model_forecast["week"] == part["week"]:
-                part_factor_per_subpart = model_forecast["dfQuantity"] / number_of_subparts
-
-                color_factor = np.random.normal(part_factor_per_subpart, color_penalty if len(part["partCodeId"]) > 11 else 3, 1)
-                index_factor = np.random.normal(part_factor_per_subpart, index_penalty if part["partCodeId"][10] != ' ' else 3, 1)
-                ic_factor = np.random.normal(part_factor_per_subpart, penalty_per_ic[str(part["numberOfInstallationConditions"])], 1)
-                
-                new_df = (color_factor + index_factor + ic_factor) / 3
-                
-                all_parts_with_forecast[forecast_week].append({ "partCodeId": part["partCodeId"], "vehicleModelId": part["vehicleModelId"], "year": 2025, "week": part["week"], "actualQuantity": part["actualQuantity"], "dfQuantity": new_df[0],  "numberOfInstallationConditions": part["numberOfInstallationConditions"], "forecastWeek": forecast_week, "forecastDistance": part["week"] - forecast_week })
-                break
-        
+        part_id, subparts = generate_part_and_subparts(model)
+        for subpart in subparts:
+            parts_per_model[model].append({ "partCodeId": f"{part_id}{subpart["index"]}{subpart["color"]}", "vehicleModelId": model, "year": 2025, "week": 1, "actualQuantity": actual_quantity, "dfQuantity": None,  "numberOfInstallationConditions": subpart["ics"] })
 
 
-
-all_rows = []
+all_forecasts = []
 for model in models:
     for forecast_week in range(1, number_of_weeks + 1):
-        for model_forecast in model_forecasts[model][forecast_week]:
-                all_rows.append(model_forecast)
-for forecast_week in range(1, number_of_weeks + 1):
-    for part in all_parts_with_forecast[forecast_week]:
-        all_rows.append(part)
+        model_forecasts[model][forecast_week] = [] 
+        for week in range(forecast_week, number_of_weeks + 1):
+            distance = week - forecast_week
+            [df_forecast] = np.random.normal(actual_quantity, distance_penalty * (distance + 1), 1)
+            week_forecast_for_model = { "partCodeId": "model" + model,  "vehicleModelId": model, "numberOfInstallationConditions": None, "year": 2025, "week": week, "dfQuantity": df_forecast, "actualQuantity": actual_quantity, "forecastWeek": forecast_week, "forecastDistance": distance }
+            all_forecasts.append(week_forecast_for_model)
+            for part in parts_per_model[model]:
+                [color_factor] = np.random.normal(1, color_penalty if len(part["partCodeId"]) > 11 else 0  , 1)
+                [index_factor] = np.random.normal(1, index_penalty if part["partCodeId"][10] in ['1','2','3'] else 0, 1)
+                [ic_factor] = np.random.normal(1, penalty_per_ic[str(part["numberOfInstallationConditions"])], 1)
+                all_factors = color_factor * index_factor * ic_factor
+                part_df = df_forecast * all_factors
+                part_with_df = { "partCodeId": part["partCodeId"], "vehicleModelId": part["vehicleModelId"], "year": 2025, "week": week, "actualQuantity": actual_quantity, "dfQuantity": part_df,  "numberOfInstallationConditions": part["numberOfInstallationConditions"], "forecastWeek": forecast_week, "forecastDistance": distance}
+                all_forecasts.append(part_with_df)
 
-df = pd.DataFrame(all_rows, columns=["partCodeId", "vehicleModelId", "numberOfInstallationConditions", "year", "week", "dfQuantity", "actualQuantity", "forecastWeek", "forecastDistance"])
+
+
+df = pd.DataFrame(all_forecasts, columns=["partCodeId", "vehicleModelId", "numberOfInstallationConditions", "year", "week", "dfQuantity", "actualQuantity", "forecastWeek", "forecastDistance"])
 
 # delete  all folders inside the folder ./generate data/datasets/general and all files inside those folders
 for root, dirs, files in os.walk("./generate data/datasets/general", topdown=False):
